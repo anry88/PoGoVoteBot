@@ -119,42 +119,56 @@ class VotingBot : TelegramLongPollingBot() {
 
         val votesInMessage = votingData.votes
 
-        // Удаляем пользователя из всех списков
-        for ((key, userVotes) in votesInMessage) {
-            userVotes.removeIf { it.userId == fromUserId }
-            // Удаляем список, если он пустой
-            if (userVotes.isEmpty()) {
-                votesInMessage.remove(key)
+        // Проверяем, нажал ли пользователь на ту же кнопку
+        if (votesInMessage[voteType]?.removeIf { it.userId == fromUserId } == true) {
+            // Удаляем голос, если пользователь уже голосовал за этот вариант
+            if (votesInMessage[voteType]?.isEmpty() == true) {
+                votesInMessage.remove(voteType)
             }
+        } else {
+            // Удаляем пользователя из всех списков
+            for ((key, userVotes) in votesInMessage) {
+                userVotes.removeIf { it.userId == fromUserId }
+                if (userVotes.isEmpty()) {
+                    votesInMessage.remove(key)
+                }
+            }
+            // Добавляем пользователя в новый список
+            val userVotes = votesInMessage.getOrPut(voteType) { mutableListOf() }
+            userVotes.add(UserVote(fromUsername, fromUserId, fromFullName))
         }
-
-        // Добавляем пользователя в новый список
-        val userVotes = votesInMessage.getOrPut(voteType) { mutableListOf() }
-        userVotes.add(UserVote(fromUsername, fromUserId, fromFullName))
 
         val newText = buildVoteText(votingData)
 
         if (inlineMessageId != null) {
-            execute(EditMessageText().apply {
-                this.inlineMessageId = inlineMessageId
-                this.text = newText
-                this.replyMarkup = InlineKeyboardMarkup().apply {
-                    keyboard = createVoteButtons(queryId)
-                }
-            })
+            try {
+                execute(EditMessageText().apply {
+                    this.inlineMessageId = inlineMessageId
+                    this.text = newText
+                    this.replyMarkup = InlineKeyboardMarkup().apply {
+                        keyboard = createVoteButtons(queryId)
+                    }
+                })
+            } catch (e: Exception) {
+                logger.error("Error executing EditMessageText: ${e.message}")
+            }
         } else {
             val message = callbackQuery.message
             if (message != null) {
                 val currentText = message.text ?: ""
                 if (currentText != newText) {
-                    execute(EditMessageText().apply {
-                        this.chatId = message.chatId.toString()
-                        this.messageId = message.messageId
-                        this.text = newText
-                        this.replyMarkup = InlineKeyboardMarkup().apply {
-                            keyboard = createVoteButtons(queryId)
-                        }
-                    })
+                    try {
+                        execute(EditMessageText().apply {
+                            this.chatId = message.chatId.toString()
+                            this.messageId = message.messageId
+                            this.text = newText
+                            this.replyMarkup = InlineKeyboardMarkup().apply {
+                                keyboard = createVoteButtons(queryId)
+                            }
+                        })
+                    } catch (e: Exception) {
+                        logger.error("Error executing EditMessageText: ${e.message}")
+                    }
                 } else {
                     logger.info("Message content is the same, no need to update.")
                 }
@@ -165,11 +179,15 @@ class VotingBot : TelegramLongPollingBot() {
         }
 
         // Ответ на callback query, чтобы показать, что запрос обработан
-        execute(AnswerCallbackQuery().apply {
-            this.callbackQueryId = callbackQuery.id
-            this.text = "Ваш голос учтен!"
-            this.showAlert = false
-        })
+        try {
+            execute(AnswerCallbackQuery().apply {
+                this.callbackQueryId = callbackQuery.id
+                this.text = "Ваш голос учтен!"
+                this.showAlert = false
+            })
+        } catch (e: Exception) {
+            logger.error("Error executing AnswerCallbackQuery: ${e.message}")
+        }
     }
 
     private fun buildVoteText(votingData: VotingData): String {
